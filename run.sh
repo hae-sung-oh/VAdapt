@@ -1,0 +1,22 @@
+# bash data_collection/batch_run/run_route_routes_town01_long.sh ;
+# bash data_collection/batch_run/run_route_routes_town01_short.sh ;
+bash data_collection/batch_run/run_route_routes_town01_tiny.sh ;
+bash data_collection/batch_run/run_route_routes_town02_long.sh ;
+bash data_collection/batch_run/run_route_routes_town02_short.sh ;
+bash data_collection/batch_run/run_route_routes_town02_tiny.sh ;
+bash data_collection/batch_run/run_route_routes_town03_long.sh ;
+bash data_collection/batch_run/run_route_routes_town03_short.sh ;
+bash data_collection/batch_run/run_route_routes_town03_tiny.sh ;
+bash data_collection/batch_run/run_route_routes_town04_long.sh ;
+bash data_collection/batch_run/run_route_routes_town04_short.sh ;
+bash data_collection/batch_run/run_route_routes_town04_tiny.sh ;
+bash data_collection/batch_run/run_route_routes_town05_long.sh ;
+bash data_collection/batch_run/run_route_routes_town05_short.sh ;
+bash data_collection/batch_run/run_route_routes_town05_tiny.sh ;
+bash data_collection/batch_run/run_route_routes_town06_long.sh ;
+bash data_collection/batch_run/run_route_routes_town06_short.sh ;
+bash data_collection/batch_run/run_route_routes_town06_tiny.sh ;
+bash data_collection/batch_run/run_route_routes_town07_short.sh ;
+bash data_collection/batch_run/run_route_routes_town07_tiny.sh ;
+bash data_collection/batch_run/run_route_routes_town10_short.sh ;
+bash data_collection/batch_run/run_route_routes_town10_tiny.sh

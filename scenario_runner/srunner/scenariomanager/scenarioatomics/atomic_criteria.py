@@ -417,13 +417,12 @@ class CollisionTest(Criterion):
             'y': actor_location.y,
             'z': actor_location.z})
         collision_event.set_message(
-            "Agent collided against object with type={} and id={} at (x={}, y={}, z={}), at time={}".format(
+            "Agent collided against object with type={} and id={} at (x={}, y={}, z={})".format(
                 event.other_actor.type_id,
                 event.other_actor.id,
                 round(actor_location.x, 3),
                 round(actor_location.y, 3),
-                round(actor_location.z, 3),
-                GameTime.get_time()))
+                round(actor_location.z, 3)))
 
         self.test_status = "FAILURE"
         self.actual_value += 1
@@ -1190,7 +1189,7 @@ class OutsideRouteLanesTest(Criterion):
                 waypoint_angle = (yaw_pre_wp - yaw_cur_wp) % 360
 
                 if waypoint_angle >= self.MAX_ALLOWED_WAYPOINT_ANGLE \
-                        and waypoint_angle <= (360 - self.MAX_ALLOWED_WAYPOINT_ANGLE):
+                        and waypoint_angle <= (360 - self.MAX_ALLOWED_WAYPOINT_ANGLE):  # pylint: disable=chained-comparison
 
                     # Is the ego vehicle going back to the lane, or going out? Take the opposite
                     self._wrong_lane_active = not bool(self._wrong_lane_active)
@@ -1805,12 +1804,11 @@ class RunningRedLightTest(Criterion):
                         location = traffic_light.get_transform().location
                         red_light_event = TrafficEvent(event_type=TrafficEventType.TRAFFIC_LIGHT_INFRACTION)
                         red_light_event.set_message(
-                            "Agent ran a red light {} at (x={}, y={}, z={}) at time={}".format(
+                            "Agent ran a red light {} at (x={}, y={}, z={})".format(
                                 traffic_light.id,
                                 round(location.x, 3),
                                 round(location.y, 3),
-                                round(location.z, 3),
-                                GameTime.get_time()))
+                                round(location.z, 3)))
                         red_light_event.set_dict({
                             'id': traffic_light.id,
                             'x': location.x,
@@ -1932,7 +1930,7 @@ class RunningStopTest(Criterion):
         am_ad = AM.x * AD.x + AM.y * AD.y
         ad_ad = AD.x * AD.x + AD.y * AD.y
 
-        return am_ab > 0 and am_ab < ab_ab and am_ad > 0 and am_ad < ad_ad
+        return am_ab > 0 and am_ab < ab_ab and am_ad > 0 and am_ad < ad_ad  # pylint: disable=chained-comparison
 
     def is_actor_affected_by_stop(self, actor, stop, multi_step=20):
         """

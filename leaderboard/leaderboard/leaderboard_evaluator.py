@@ -21,12 +21,18 @@ import importlib
 import os
 import sys
 import gc
-import pkg_resources
+
+# import pkg_resources
+import importlib.metadata
+from packaging.version import Version
 import sys
+
+import torch
 import carla
 import copy
 import signal
 
+from srunner.scenariomanager.carla_data_provider import CarlaDataProvider
 from srunner.scenariomanager.carla_data_provider import *
 from srunner.scenariomanager.timer import GameTime
 from srunner.scenariomanager.watchdog import Watchdog
@@ -34,27 +40,26 @@ from srunner.scenariomanager.watchdog import Watchdog
 from leaderboard.scenarios.scenario_manager import ScenarioManager
 from leaderboard.scenarios.route_scenario import RouteScenario
 from leaderboard.envs.sensor_interface import SensorInterface, SensorConfigurationInvalid
-from leaderboard.autoagents.agent_wrapper import  AgentWrapper, AgentError
+from leaderboard.autoagents.agent_wrapper import AgentWrapper, AgentError
 from leaderboard.utils.statistics_manager import StatisticsManager
 from leaderboard.utils.route_indexer import RouteIndexer
 
 
 sensors_to_icons = {
-    'sensor.camera.rgb':        'carla_camera',
-    'sensor.camera.semantic_segmentation': 'carla_camera',
-    'sensor.camera.depth':      'carla_camera',
-    'sensor.lidar.ray_cast':    'carla_lidar',
-    'sensor.lidar.ray_cast_semantic':    'carla_lidar',
-    'sensor.other.radar':       'carla_radar',
-    'sensor.other.gnss':        'carla_gnss',
-    'sensor.other.imu':         'carla_imu',
-    'sensor.opendrive_map':     'carla_opendrive_map',
-    'sensor.speedometer':       'carla_speedometer'
+    "sensor.camera.rgb": "carla_camera",
+    "sensor.camera.semantic_segmentation": "carla_camera",
+    "sensor.camera.depth": "carla_camera",
+    "sensor.lidar.ray_cast": "carla_lidar",
+    "sensor.lidar.ray_cast_semantic": "carla_lidar",
+    "sensor.other.radar": "carla_radar",
+    "sensor.other.gnss": "carla_gnss",
+    "sensor.other.imu": "carla_imu",
+    "sensor.opendrive_map": "carla_opendrive_map",
+    "sensor.speedometer": "carla_speedometer",
 }
 
 
 class LeaderboardEvaluator(object):
-
     """
     TODO: document me!
     """
@@ -62,9 +67,9 @@ class LeaderboardEvaluator(object):
     ego_vehicles = []
 
     # Tunable parameters
-    client_timeout = 10.0  # in seconds
-    wait_for_world = 20.0  # in seconds
-    frame_rate = 20.0      # in Hz
+    client_timeout = 60.0  # in seconds
+    wait_for_world = 60.0  # in seconds
+    frame_rate = 20.0  # in Hz
 
     def __init__(self, args, statistics_manager):
         """
@@ -86,13 +91,16 @@ class LeaderboardEvaluator(object):
 
         self.traffic_manager = self.client.get_trafficmanager(int(args.trafficManagerPort))
 
-        dist = pkg_resources.get_distribution("carla")
-        if dist.version != 'leaderboard':
-            if LooseVersion(dist.version) < LooseVersion('0.9.10'):
-                raise ImportError("CARLA version 0.9.10.1 or newer required. CARLA version found: {}".format(dist))
+        carla_version = importlib.metadata.version("carla")
+
+        # Check if the version is not 'leaderboard'
+        if carla_version != "leaderboard":
+            # Compare the version using packaging.version.Version
+            if Version(carla_version) < Version("0.9.10"):
+                raise ImportError(f"CARLA version 0.9.10.1 or newer required. CARLA version found: {carla_version}")
 
         # Load agent
-        module_name = os.path.basename(args.agent).split('.')[0]
+        module_name = os.path.basename(args.agent).split(".")[0]
         sys.path.insert(0, os.path.dirname(args.agent))
         self.module_agent = importlib.import_module(module_name)
 
@@ -122,9 +130,9 @@ class LeaderboardEvaluator(object):
         """
 
         self._cleanup()
-        if hasattr(self, 'manager') and self.manager:
+        if hasattr(self, "manager") and self.manager:
             del self.manager
-        if hasattr(self, 'world') and self.world:
+        if hasattr(self, "world") and self.world:
             del self.world
 
     def _cleanup(self):
@@ -133,8 +141,7 @@ class LeaderboardEvaluator(object):
         """
 
         # Simulation still running and in synchronous mode?
-        if self.manager and self.manager.get_running_status() \
-                and hasattr(self, 'world') and self.world:
+        if self.manager and self.manager.get_running_status() and hasattr(self, "world") and self.world:
             # Reset to asynchronous mode
             settings = self.world.get_settings()
             settings.synchronous_mode = False
@@ -153,14 +160,15 @@ class LeaderboardEvaluator(object):
                 self.ego_vehicles[i] = None
         self.ego_vehicles = []
 
-        if self._agent_watchdog._timer:
+        # if self._agent_watchdog._timer:
+        if self._agent_watchdog._watchdog:
             self._agent_watchdog.stop()
 
-        if hasattr(self, 'agent_instance') and self.agent_instance:
+        if hasattr(self, "agent_instance") and self.agent_instance:
             self.agent_instance.destroy()
             self.agent_instance = None
 
-        if hasattr(self, 'statistics_manager') and self.statistics_manager:
+        if hasattr(self, "statistics_manager") and self.statistics_manager:
             self.statistics_manager.scenario = None
 
     def _prepare_ego_vehicles(self, ego_vehicles, wait_for_ego_vehicles=False):
@@ -170,11 +178,7 @@ class LeaderboardEvaluator(object):
 
         if not wait_for_ego_vehicles:
             for vehicle in ego_vehicles:
-                self.ego_vehicles.append(CarlaDataProvider.request_new_actor(vehicle.model,
-                                                                             vehicle.transform,
-                                                                             vehicle.rolename,
-                                                                             color=vehicle.color,
-                                                                             vehicle_category=vehicle.category))
+                self.ego_vehicles.append(CarlaDataProvider.request_new_actor(vehicle.model, vehicle.transform, vehicle.rolename, color=vehicle.color, vehicle_category=vehicle.category))
 
         else:
             ego_vehicle_missing = True
@@ -183,9 +187,9 @@ class LeaderboardEvaluator(object):
                 ego_vehicle_missing = False
                 for ego_vehicle in ego_vehicles:
                     ego_vehicle_found = False
-                    carla_vehicles = CarlaDataProvider.get_world().get_actors().filter('vehicle.*')
+                    carla_vehicles = CarlaDataProvider.get_world().get_actors().filter("vehicle.*")
                     for carla_vehicle in carla_vehicles:
-                        if carla_vehicle.attributes['role_name'] == ego_vehicle.rolename:
+                        if carla_vehicle.attributes["role_name"] == ego_vehicle.rolename:
                             ego_vehicle_found = True
                             self.ego_vehicles.append(carla_vehicle)
                             break
@@ -215,7 +219,7 @@ class LeaderboardEvaluator(object):
         CarlaDataProvider.set_client(self.client)
         CarlaDataProvider.set_world(self.world)
         CarlaDataProvider.set_traffic_manager_port(int(args.trafficManagerPort))
-        CarlaDataProvider.set_random_seed(int(args.carlaProviderSeed))
+        # CarlaDataProvider.set_random_seed(int(args.carlaProviderSeed))
 
         self.traffic_manager.set_synchronous_mode(True)
         self.traffic_manager.set_random_device_seed(int(args.trafficManagerSeed))
@@ -227,20 +231,15 @@ class LeaderboardEvaluator(object):
             self.world.wait_for_tick()
 
         if CarlaDataProvider.get_map().name != town:
-            raise Exception("The CARLA server uses the wrong map!"
-                            "This scenario requires to use map {}".format(town))
+            print(CarlaDataProvider.get_map().name)
+            # raise Exception("The CARLA server uses the wrong map!" "This scenario requires to use map {}".format(town))
 
     def _register_statistics(self, config, checkpoint, entry_status, crash_message=""):
         """
         Computes and saved the simulation statistics
         """
         # register statistics
-        current_stats_record = self.statistics_manager.compute_route_statistics(
-            config,
-            self.manager.scenario_duration_system,
-            self.manager.scenario_duration_game,
-            crash_message
-        )
+        current_stats_record = self.statistics_manager.compute_route_statistics(config, self.manager.scenario_duration_system, self.manager.scenario_duration_game, crash_message)
 
         print("\033[1m> Registering the route statistics\033[0m")
         self.statistics_manager.save_record(current_stats_record, config.index, checkpoint)
@@ -265,7 +264,7 @@ class LeaderboardEvaluator(object):
         # Set up the user's agent, and the timer to avoid freezing the simulation
         try:
             self._agent_watchdog.start()
-            agent_class_name = getattr(self.module_agent, 'get_entry_point')()
+            agent_class_name = getattr(self.module_agent, "get_entry_point")()
             self.agent_instance = getattr(self.module_agent, agent_class_name)(args.agent_config)
             config.agent = self.agent_instance
 
@@ -276,7 +275,7 @@ class LeaderboardEvaluator(object):
 
                 AgentWrapper.validate_sensor_configuration(self.sensors, track, args.track)
 
-                self.sensor_icons = [sensors_to_icons[sensor['type']] for sensor in self.sensors]
+                self.sensor_icons = [sensors_to_icons[sensor["type"]] for sensor in self.sensors]
                 self.statistics_manager.save_sensors(self.sensor_icons, args.checkpoint)
 
             self._agent_watchdog.stop()
@@ -416,7 +415,7 @@ class LeaderboardEvaluator(object):
 
             for obj in gc.get_objects():
                 try:
-                    if torch.is_tensor(obj) or (hasattr(obj, 'data') and torch.is_tensor(obj.data)):
+                    if torch.is_tensor(obj) or (hasattr(obj, "data") and torch.is_tensor(obj.data)):
                         print(type(obj), obj.size())
                 except:
                     pass
@@ -434,42 +433,27 @@ def main():
 
     # general parameters
     parser = argparse.ArgumentParser(description=description, formatter_class=RawTextHelpFormatter)
-    parser.add_argument('--host', default='localhost',
-                        help='IP of the host server (default: localhost)')
-    parser.add_argument('--port', default='2000', help='TCP port to listen to (default: 2000)')
-    parser.add_argument('--trafficManagerPort', default='8000',
-                        help='Port to use for the TrafficManager (default: 8000)')
-    parser.add_argument('--trafficManagerSeed', default='1',
-                        help='Seed used by the TrafficManager (default: 0)')
-    parser.add_argument('--carlaProviderSeed', default='2000',
-                        help='Seed used by the CarlaProvider (default: 2000)')
-    parser.add_argument('--debug', type=int, help='Run with debug output', default=0)
-    parser.add_argument('--record', type=str, default='',
-                        help='Use CARLA recording feature to create a recording of the scenario')
-    parser.add_argument('--timeout', default="600.0",
-                        help='Set the CARLA client timeout value in seconds')
+    parser.add_argument("--host", default="127.0.0.1", help="IP of the host server (default: localhost)")
+    parser.add_argument("--port", default="2000", help="TCP port to listen to (default: 2000)")
+    parser.add_argument("--trafficManagerPort", default="8000", help="Port to use for the TrafficManager (default: 8000)")
+    parser.add_argument("--trafficManagerSeed", default="1", help="Seed used by the TrafficManager (default: 0)")
+    parser.add_argument("--carlaProviderSeed", default="2000", help="Seed used by the CarlaProvider (default: 2000)")
+    parser.add_argument("--debug", type=int, help="Run with debug output", default=0)
+    parser.add_argument("--record", type=str, default="", help="Use CARLA recording feature to create a recording of the scenario")
+    parser.add_argument("--timeout", default="1000.0", help="Set the CARLA client timeout value in seconds")
 
     # simulation setup
-    parser.add_argument('--routes',
-                        help='Name of the route to be executed. Point to the route_xml_file to be executed.',
-                        required=True)
-    parser.add_argument('--scenarios',
-                        help='Name of the scenario annotation file to be mixed with the route.',
-                        required=True)
-    parser.add_argument('--repetitions',
-                        type=int,
-                        default=1,
-                        help='Number of repetitions per route.')
+    parser.add_argument("--routes", help="Name of the route to be executed. Point to the route_xml_file to be executed.", required=True)
+    parser.add_argument("--scenarios", help="Name of the scenario annotation file to be mixed with the route.", required=True)
+    parser.add_argument("--repetitions", type=int, default=1, help="Number of repetitions per route.")
 
     # agent-related options
     parser.add_argument("-a", "--agent", type=str, help="Path to Agent's py file to evaluate", required=True)
     parser.add_argument("--agent-config", type=str, help="Path to Agent's configuration file", default="")
 
-    parser.add_argument("--track", type=str, default='SENSORS', help="Participation track: SENSORS, MAP")
-    parser.add_argument('--resume', type=bool, default=False, help='Resume execution from last checkpoint?')
-    parser.add_argument("--checkpoint", type=str,
-                        default='./simulation_results.json',
-                        help="Path to checkpoint used for saving statistics and resuming")
+    parser.add_argument("--track", type=str, default="SENSORS", help="Participation track: SENSORS, MAP")
+    parser.add_argument("--resume", type=bool, default=False, help="Resume execution from last checkpoint?")
+    parser.add_argument("--checkpoint", type=str, default="./simulation_results.json", help="Path to checkpoint used for saving statistics and resuming")
 
     arguments = parser.parse_args()
 
@@ -485,5 +469,5 @@ def main():
         del leaderboard_evaluator
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

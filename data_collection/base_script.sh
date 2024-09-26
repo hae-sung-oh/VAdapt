@@ -1,11 +1,11 @@
 #!/bin/bash
 export DATA_ROOT=dataset
 export YAML_ROOT=data_collection/yamls
-export CARLA_ROOT=carla
-export CARLA_SERVER=${CARLA_ROOT}/CarlaUE4.sh
+export CARLA_ROOT=/home/ohs-dyros/carla
+export CARLA_SERVER=${CARLA_ROOT}/Dist/CARLA_Shipping_0.9.12-dirty/LinuxNoEditor/CarlaUE4.sh
 export PYTHONPATH=$PYTHONPATH:${CARLA_ROOT}/PythonAPI
 export PYTHONPATH=$PYTHONPATH:${CARLA_ROOT}/PythonAPI/carla
-export PYTHONPATH=$PYTHONPATH:$CARLA_ROOT/PythonAPI/carla/dist/carla-0.9.10-py3.7-linux-x86_64.egg
+export PYTHONPATH=$PYTHONPATH:${CARLA_ROOT}/PythonAPI/carla/dist/carla-0.9.12-py3.8-linux-x86_64.egg
 export PYTHONPATH=$PYTHONPATH:leaderboard
 export PYTHONPATH=$PYTHONPATH:leaderboard/team_code
 export PYTHONPATH=$PYTHONPATH:scenario_runner

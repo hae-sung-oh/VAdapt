@@ -27,6 +27,7 @@ from render import render, render_waypoints
 import torch
 import torch.nn as nn
 import torchvision.utils
+import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as NativeDDP
 from tensorboardX import SummaryWriter
 
@@ -83,11 +84,11 @@ except ImportError:
 torch.backends.cudnn.benchmark = True
 _logger = logging.getLogger("train")
 
+local_rank = int(os.environ.get("LOCAL_RANK", 0))
+
 # The first arg parser parses out only the --config argument, this argument is used to
 # load a yaml file containing key-values that override the defaults for the main parser below
-config_parser = parser = argparse.ArgumentParser(
-    description="Training Config", add_help=False
-)
+config_parser = parser = argparse.ArgumentParser(description="Training Config", add_help=False)
 parser.add_argument(
     "-c",
     "--config",
@@ -167,12 +168,8 @@ parser.add_argument(
     help="Input all image dimensions (d h w, e.g. --input-size 3 224 224) for left- right- or rear- view",
 )
 
-parser.add_argument(
-    "--freeze-num", type=int, default=-1, help="Number of freeze layers in the backbone"
-)
-parser.add_argument(
-    "--backbone-lr", type=float, default=5e-4, help="The learning rate for backbone"
-)
+parser.add_argument("--freeze-num", type=int, default=-1, help="Number of freeze layers in the backbone")
+parser.add_argument("--backbone-lr", type=float, default=5e-4, help="The learning rate for backbone")
 parser.add_argument(
     "--with-backbone-lr",
     action="store_true",
@@ -345,9 +342,7 @@ parser.add_argument(
     metavar="M",
     help="Optimizer momentum (default: 0.9)",
 )
-parser.add_argument(
-    "--weight-decay", type=float, default=0.0001, help="weight decay (default: 0.0001)"
-)
+parser.add_argument("--weight-decay", type=float, default=0.0001, help="weight decay (default: 0.0001)")
 parser.add_argument(
     "--clip-grad",
     type=float,
@@ -371,9 +366,7 @@ parser.add_argument(
     metavar="SCHEDULER",
     help='LR scheduler (default: "step"',
 )
-parser.add_argument(
-    "--lr", type=float, default=5e-4, metavar="LR", help="learning rate (default: 0.01)"
-)
+parser.add_argument("--lr", type=float, default=5e-4, metavar="LR", help="learning rate (default: 0.01)")
 parser.add_argument(
     "--lr-noise",
     type=float,
@@ -505,12 +498,8 @@ parser.add_argument(
     metavar="RATIO",
     help="Random resize aspect ratio (default: 0.75 1.33)",
 )
-parser.add_argument(
-    "--hflip", type=float, default=0.5, help="Horizontal flip training aug probability"
-)
-parser.add_argument(
-    "--vflip", type=float, default=0.0, help="Vertical flip training aug probability"
-)
+parser.add_argument("--hflip", type=float, default=0.5, help="Horizontal flip training aug probability")
+parser.add_argument("--vflip", type=float, default=0.0, help="Vertical flip training aug probability")
 parser.add_argument(
     "--color-jitter",
     type=float,
@@ -544,33 +533,23 @@ parser.add_argument(
     metavar="PCT",
     help="Random erase prob (default: 0.)",
 )
-parser.add_argument(
-    "--remode", type=str, default="const", help='Random erase mode (default: "const")'
-)
-parser.add_argument(
-    "--recount", type=int, default=1, help="Random erase count (default: 1)"
-)
+parser.add_argument("--remode", type=str, default="const", help='Random erase mode (default: "const")')
+parser.add_argument("--recount", type=int, default=1, help="Random erase count (default: 1)")
 parser.add_argument(
     "--resplit",
     action="store_true",
     default=False,
     help="Do not random erase first (clean) augmentation split",
 )
-parser.add_argument(
-    "--smoothing", type=float, default=0.0, help="Label smoothing (default: 0.0)"
-)
-parser.add_argument(
-    "--smoothed_l1", type=bool, default=False, help="L1 smooth"
-)
+parser.add_argument("--smoothing", type=float, default=0.0, help="Label smoothing (default: 0.0)")
+parser.add_argument("--smoothed_l1", type=bool, default=False, help="L1 smooth")
 parser.add_argument(
     "--train-interpolation",
     type=str,
     default="random",
     help='Training interpolation (random, bilinear, bicubic default: "random")',
 )
-parser.add_argument(
-    "--drop", type=float, default=0.0, metavar="PCT", help="Dropout rate (default: 0.)"
-)
+parser.add_argument("--drop", type=float, default=0.0, metavar="PCT", help="Dropout rate (default: 0.)")
 parser.add_argument(
     "--drop-connect",
     type=float,
@@ -650,9 +629,7 @@ parser.add_argument(
 )
 
 # Misc
-parser.add_argument(
-    "--seed", type=int, default=42, metavar="S", help="random seed (default: 42)"
-)
+parser.add_argument("--seed", type=int, default=42, metavar="S", help="random seed (default: 42)")
 parser.add_argument(
     "--log-interval",
     type=int,
@@ -751,13 +728,13 @@ parser.add_argument(
     metavar="N",
     help="Test/inference time augmentation (oversampling) factor. 0=None (default: 0)",
 )
-parser.add_argument("--local_rank", default=0, type=int)
-parser.add_argument(
-    "--use-multi-epochs-loader",
-    action="store_true",
-    default=False,
-    help="use the multi-epochs-loader to save time at the beginning of every epoch",
-)
+# parser.add_argument("--local_rank", default=0, type=int)
+# parser.add_argument(
+#     "--use-multi-epochs-loader",
+#     action="store_true",
+#     default=False,
+#     help="use the multi-epochs-loader to save time at the beginning of every epoch",
+# )
 parser.add_argument(
     "--torchscript",
     dest="torchscript",
@@ -862,10 +839,7 @@ def main():
         if has_wandb:
             wandb.init(project=args.experiment, config=args)
         else:
-            _logger.warning(
-                "You've requested to log metrics to wandb but package not found. "
-                "Metrics not being logged to wandb, try `pip install wandb`"
-            )
+            _logger.warning("You've requested to log metrics to wandb but package not found. " "Metrics not being logged to wandb, try `pip install wandb`")
     args.prefetcher = not args.no_prefetcher
     args.distributed = False
     if "WORLD_SIZE" in os.environ:
@@ -874,15 +848,12 @@ def main():
     args.world_size = 1
     args.rank = 0  # global rank
     if args.distributed:
-        args.device = "cuda:%d" % args.local_rank
-        torch.cuda.set_device(args.local_rank)
+        args.device = "cuda:%d" % local_rank
+        torch.cuda.set_device(local_rank)
         torch.distributed.init_process_group(backend="nccl", init_method="env://")
         args.world_size = torch.distributed.get_world_size()
         args.rank = torch.distributed.get_rank()
-        _logger.info(
-            "Training in distributed mode with multiple processes, 1 GPU per process. Process %d, total %d."
-            % (args.rank, args.world_size)
-        )
+        _logger.info("Training in distributed mode with multiple processes, 1 GPU per process. Process %d, total %d." % (args.rank, args.world_size))
     else:
         _logger.info("Training with a single process on 1 GPUs.")
     assert args.rank >= 0
@@ -900,10 +871,7 @@ def main():
     elif args.native_amp and has_native_amp:
         use_amp = "native"
     elif args.apex_amp or args.native_amp:
-        _logger.warning(
-            "Neither APEX or native Torch AMP is available, using float32. "
-            "Install NVIDA apex or upgrade to PyTorch 1.6"
-        )
+        _logger.warning("Neither APEX or native Torch AMP is available, using float32. " "Install NVIDA apex or upgrade to PyTorch 1.6")
 
     random_seed(args.seed, args.rank)
 
@@ -923,14 +891,10 @@ def main():
         freeze_num=args.freeze_num,
     )
 
-    if args.local_rank == 0:
-        _logger.info(
-            f"Model {safe_model_name(args.model)} created, param count:{sum([m.numel() for m in model.parameters()])}"
-        )
+    if local_rank == 0:
+        _logger.info(f"Model {safe_model_name(args.model)} created, param count:{sum([m.numel() for m in model.parameters()])}")
 
-    data_config = resolve_data_config(
-        vars(args), model=model, verbose=args.local_rank == 0
-    )
+    data_config = resolve_data_config(vars(args), model=model, verbose=local_rank == 0)
 
     # setup augmentation batch splits for contrastive loss or split bn
     num_aug_splits = 0
@@ -956,32 +920,25 @@ def main():
             model = convert_syncbn_model(model)
         else:
             model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
-        if args.local_rank == 0:
-            _logger.info(
-                "Converted model to use Synchronized BatchNorm. WARNING: You may have issues if using "
-                "zero initialized BN layers (enabled by default for ResNets) while sync-bn enabled."
-            )
+        if local_rank == 0:
+            _logger.info("Converted model to use Synchronized BatchNorm. WARNING: You may have issues if using " "zero initialized BN layers (enabled by default for ResNets) while sync-bn enabled.")
 
     if args.torchscript:
         assert not use_amp == "apex", "Cannot use APEX AMP with torchscripted model"
         assert not args.sync_bn, "Cannot use SyncBatchNorm with torchscripted model"
         model = torch.jit.script(model)
+    if dist.is_available() and dist.is_initialized():
+        world_size = dist.get_world_size()
+    else:
+        world_size = 1
 
-    linear_scaled_lr = (
-        args.lr * args.batch_size * torch.distributed.get_world_size() / 512.0
-    )
+    linear_scaled_lr = args.lr * args.batch_size * world_size / 512.0
+    # linear_scaled_lr = args.lr * args.batch_size * torch.distributed.get_world_size() / 512.0
     args.lr = linear_scaled_lr
     if args.with_backbone_lr:
-        if args.local_rank == 0:
-            _logger.info(
-                "CNN backbone and transformer blocks using different learning rates!"
-            )
-        backbone_linear_scaled_lr = (
-            args.backbone_lr
-            * args.batch_size
-            * torch.distributed.get_world_size()
-            / 512.0
-        )
+        if local_rank == 0:
+            _logger.info("CNN backbone and transformer blocks using different learning rates!")
+        backbone_linear_scaled_lr = args.backbone_lr * args.batch_size * world_size / 512.0
         backbone_weights = []
         other_weights = []
         for name, weight in model.named_parameters():
@@ -989,11 +946,8 @@ def main():
                 backbone_weights.append(weight)
             else:
                 other_weights.append(weight)
-        if args.local_rank == 0:
-            _logger.info(
-                "%d weights in the cnn backbone, %d weights in other modules"
-                % (len(backbone_weights), len(other_weights))
-            )
+        if local_rank == 0:
+            _logger.info("%d weights in the cnn backbone, %d weights in other modules" % (len(backbone_weights), len(other_weights)))
         optimizer = create_optimizer_v2(
             [
                 {"params": other_weights},
@@ -1010,15 +964,15 @@ def main():
     if use_amp == "apex":
         model, optimizer = amp.initialize(model, optimizer, opt_level="O1")
         loss_scaler = ApexScaler()
-        if args.local_rank == 0:
+        if local_rank == 0:
             _logger.info("Using NVIDIA APEX AMP. Training in mixed precision.")
     elif use_amp == "native":
         amp_autocast = torch.cuda.amp.autocast
         loss_scaler = NativeScaler()
-        if args.local_rank == 0:
+        if local_rank == 0:
             _logger.info("Using native Torch AMP. Training in mixed precision.")
     else:
-        if args.local_rank == 0:
+        if local_rank == 0:
             _logger.info("AMP not enabled. Training in float32.")
 
     # optionally resume from a checkpoint
@@ -1029,7 +983,7 @@ def main():
             args.resume,
             optimizer=None if args.no_resume_opt else optimizer,
             loss_scaler=None if args.no_resume_opt else loss_scaler,
-            log_info=args.local_rank == 0,
+            log_info=local_rank == 0,
         )
 
     # setup exponential moving average of model weights, SWA could be used here too
@@ -1048,15 +1002,13 @@ def main():
     if args.distributed:
         if has_apex and use_amp != "native":
             # Apex DDP preferred unless native amp is activated
-            if args.local_rank == 0:
+            if local_rank == 0:
                 _logger.info("Using NVIDIA APEX DistributedDataParallel.")
             model = ApexDDP(model, delay_allreduce=True)
         else:
-            if args.local_rank == 0:
+            if local_rank == 0:
                 _logger.info("Using native Torch DistributedDataParallel.")
-            model = NativeDDP(
-                model, device_ids=[args.local_rank], find_unused_parameters=True
-            )  # can use device str in Torch >= 1.1
+            model = NativeDDP(model, device_ids=[local_rank], find_unused_parameters=True)  # can use device str in Torch >= 1.1
         # NOTE: EMA model does not need to be wrapped by DDP
 
     # setup learning rate schedule and starting epoch
@@ -1070,7 +1022,7 @@ def main():
     if lr_scheduler is not None and start_epoch > 0:
         lr_scheduler.step(start_epoch)
 
-    if args.local_rank == 0:
+    if local_rank == 0:
         _logger.info("Scheduled epochs: {}".format(num_epochs))
 
     # create the train and eval datasets
@@ -1085,7 +1037,7 @@ def main():
             with_seg=args.with_seg,
             with_depth=args.with_depth,
             multi_view=args.multi_view,
-            augment_prob=args.augment_prob
+            augment_prob=args.augment_prob,
         )
         dataset_eval = create_carla_dataset(
             args.dataset,
@@ -1097,7 +1049,7 @@ def main():
             with_seg=args.with_seg,
             with_depth=args.with_depth,
             multi_view=args.multi_view,
-            augment_prob=args.augment_prob
+            augment_prob=args.augment_prob,
         )
     else:
         dataset_train = create_dataset(
@@ -1242,7 +1194,7 @@ def main():
             )
 
             if args.distributed and args.dist_bn in ("broadcast", "reduce"):
-                if args.local_rank == 0:
+                if local_rank == 0:
                     _logger.info("Distributing BatchNorm running means and vars")
                 distribute_bn(model, args.world_size, args.dist_bn == "reduce")
 
@@ -1286,9 +1238,7 @@ def main():
             if saver is not None:
                 # save proper checkpoint with eval metric
                 save_metric = eval_metrics[eval_metric]
-                best_metric, best_epoch = saver.save_checkpoint(
-                    epoch, metric=save_metric
-                )
+                best_metric, best_epoch = saver.save_checkpoint(epoch, metric=save_metric)
 
     except KeyboardInterrupt:
         pass
@@ -1367,18 +1317,9 @@ def train_one_epoch(
             loss_waypoints = loss_fns["waypoints"](output[1], target[1])
             loss_junction = loss_fns["cls"](output[2], target[2])
             on_road_mask = target[2] < 0.5
-            loss_traffic_light_state = loss_fns["cls"](
-                output[3], target[3]
-            )
+            loss_traffic_light_state = loss_fns["cls"](output[3], target[3])
             loss_stop_sign = loss_fns["stop_cls"](output[4], target[6])
-            loss = (
-                loss_traffic * 0.5
-                + loss_waypoints * 0.2
-                + loss_velocity * 0.05
-                + loss_junction * 0.05
-                + loss_traffic_light_state * 0.1
-                + loss_stop_sign * 0.01
-            )
+            loss = loss_traffic * 0.5 + loss_waypoints * 0.2 + loss_velocity * 0.05 + loss_junction * 0.05 + loss_traffic_light_state * 0.1 + loss_stop_sign * 0.01
 
         if not args.distributed:
             losses_traffic.update(loss_traffic.item(), batch_size)
@@ -1392,9 +1333,7 @@ def train_one_epoch(
                 optimizer,
                 clip_grad=args.clip_grad,
                 clip_mode=args.clip_mode,
-                parameters=model_parameters(
-                    model, exclude_head="agc" in args.clip_mode
-                ),
+                parameters=model_parameters(model, exclude_head="agc" in args.clip_mode),
                 create_graph=second_order,
             )
         else:
@@ -1422,45 +1361,27 @@ def train_one_epoch(
                 losses_m.update(reduced_loss.item(), batch_size)
                 reduced_loss_traffic = reduce_tensor(loss_traffic.data, args.world_size)
                 losses_traffic.update(reduced_loss_traffic.item(), batch_size)
-                reduced_loss_velocity = reduce_tensor(
-                    loss_velocity.data, args.world_size
-                )
+                reduced_loss_velocity = reduce_tensor(loss_velocity.data, args.world_size)
                 losses_velocity.update(reduced_loss_velocity.item(), batch_size)
 
-                reduced_loss_waypoints = reduce_tensor(
-                    loss_waypoints.data, args.world_size
-                )
+                reduced_loss_waypoints = reduce_tensor(loss_waypoints.data, args.world_size)
                 losses_waypoints.update(reduced_loss_waypoints.item(), batch_size)
-                reduced_loss_junction = reduce_tensor(
-                    loss_junction.data, args.world_size
-                )
+                reduced_loss_junction = reduce_tensor(loss_junction.data, args.world_size)
                 losses_junction.update(reduced_loss_junction.item(), batch_size)
-                reduced_loss_traffic_light_state = reduce_tensor(
-                    loss_traffic_light_state.data, args.world_size
-                )
-                losses_traffic_light_state.update(
-                    reduced_loss_traffic_light_state.item(), batch_size
-                )
-                reduced_loss_stop_sign = reduce_tensor(
-                    loss_stop_sign.data, args.world_size
-                )
+                reduced_loss_traffic_light_state = reduce_tensor(loss_traffic_light_state.data, args.world_size)
+                losses_traffic_light_state.update(reduced_loss_traffic_light_state.item(), batch_size)
+                reduced_loss_stop_sign = reduce_tensor(loss_stop_sign.data, args.world_size)
                 losses_stop_sign.update(reduced_loss_stop_sign.item(), batch_size)
-                if writer and args.local_rank == 0:
+                if writer and local_rank == 0:
                     writer.add_scalar("train/loss", reduced_loss.item(), num_updates)
-                    writer.add_scalar(
-                        "train/loss_traffic", reduced_loss_traffic.item(), num_updates
-                    )
-                    writer.add_scalar(
-                        "train/loss_velocity", reduced_loss_velocity.item(), num_updates
-                    )
+                    writer.add_scalar("train/loss_traffic", reduced_loss_traffic.item(), num_updates)
+                    writer.add_scalar("train/loss_velocity", reduced_loss_velocity.item(), num_updates)
                     writer.add_scalar(
                         "train/loss_waypoints",
                         reduced_loss_waypoints.item(),
                         num_updates,
                     )
-                    writer.add_scalar(
-                        "train/loss_junction", reduced_loss_junction.item(), num_updates
-                    )
+                    writer.add_scalar("train/loss_junction", reduced_loss_junction.item(), num_updates)
                     writer.add_scalar(
                         "train/loss_traffic_light_state",
                         reduced_loss_traffic_light_state.item(),
@@ -1473,9 +1394,7 @@ def train_one_epoch(
                     )
 
                     # Add Image
-                    writer.add_image(
-                        "train/front_view", retransform(input["rgb"][0]), num_updates
-                    )
+                    writer.add_image("train/front_view", retransform(input["rgb"][0]), num_updates)
                     writer.add_image(
                         "train/left_view",
                         retransform(input["rgb_left"][0]),
@@ -1499,20 +1418,14 @@ def train_one_epoch(
                     writer.add_image(
                         "train/pred_traffic_render",
                         torch.clip(
-                            torch.tensor(
-                                render(
-                                    output[0][0].view(20, 20, 7).detach().cpu().numpy()
-                                )[:100, 40:140]
-                            ),
+                            torch.tensor(render(output[0][0].view(20, 20, 7).detach().cpu().numpy())[:100, 40:140]),
                             0,
                             255,
                         ).view(1, 100, 100),
                         num_updates,
                     )
                     input["lidar"][0] = input["lidar"][0] / torch.max(input["lidar"][0])
-                    writer.add_image(
-                        "train/lidar", torch.clip(input["lidar"][0], 0, 1), num_updates
-                    )
+                    writer.add_image("train/lidar", torch.clip(input["lidar"][0], 0, 1), num_updates)
                     writer.add_image(
                         "train/gt_traffic",
                         torch.clip(target[4][0], 0, 1).view(1, 20, 20, 7)[:, :, :, 0],
@@ -1526,11 +1439,7 @@ def train_one_epoch(
                     writer.add_image(
                         "train/pred_waypoints",
                         torch.clip(
-                            torch.tensor(
-                                render_waypoints(output[1][0].detach().cpu().numpy())[
-                                    :100, 40:140
-                                ]
-                            ),
+                            torch.tensor(render_waypoints(output[1][0].detach().cpu().numpy())[:100, 40:140]),
                             0,
                             255,
                         ).view(1, 100, 100),
@@ -1542,7 +1451,7 @@ def train_one_epoch(
                         num_updates,
                     )
 
-            if args.local_rank == 0:
+            if local_rank == 0:
                 _logger.info(
                     "Train: {} [{:>4d}/{} ({:>3.0f}%)]  "
                     "Loss(traffic): {loss_traffic.val:>9.6f} ({loss_traffic.avg:>6.4f})  "
@@ -1579,11 +1488,7 @@ def train_one_epoch(
                         normalize=True,
                     )
 
-        if (
-            saver is not None
-            and args.recovery_interval
-            and (last_batch or (batch_idx + 1) % args.recovery_interval == 0)
-        ):
+        if saver is not None and args.recovery_interval and (last_batch or (batch_idx + 1) % args.recovery_interval == 0):
             saver.save_recovery(epoch, batch_idx=batch_idx)
 
         if lr_scheduler is not None:
@@ -1598,9 +1503,7 @@ def train_one_epoch(
     return OrderedDict([("loss", losses_m.avg)])
 
 
-def validate(
-    epoch, model, loader, loss_fns, args, writer, amp_autocast=suppress, log_suffix=""
-):
+def validate(epoch, model, loader, loss_fns, args, writer, amp_autocast=suppress, log_suffix=""):
     batch_time_m = AverageMeter()
     losses_m = AverageMeter()
     losses_waypoints = AverageMeter()
@@ -1658,46 +1561,23 @@ def validate(
             on_road_mask = target[2] < 0.5
             loss_traffic_light_state = loss_fns["cls"](output[3], target[3])
             loss_stop_sign = loss_fns["stop_cls"](output[4], target[6])
-            loss = (
-                loss_traffic * 0.5
-                + loss_waypoints * 0.2
-                + loss_velocity * 0.05
-                + loss_junction * 0.05
-                + loss_traffic_light_state * 0.1
-                + loss_stop_sign * 0.01
-            )
+            loss = loss_traffic * 0.5 + loss_waypoints * 0.2 + loss_velocity * 0.05 + loss_junction * 0.05 + loss_traffic_light_state * 0.1 + loss_stop_sign * 0.01
 
             junction_error = accuracy(output[2], target[2])[0]
-            traffic_light_state_error = accuracy(
-                output[3], target[3]
-            )[0]
+            traffic_light_state_error = accuracy(output[3], target[3])[0]
             stop_sign_error = accuracy(output[3], target[3])[0]
 
             if args.distributed:
                 reduced_loss = reduce_tensor(loss.data, args.world_size)
                 reduced_loss_traffic = reduce_tensor(loss_traffic.data, args.world_size)
-                reduced_loss_velocity = reduce_tensor(
-                    loss_velocity.data, args.world_size
-                )
-                reduced_loss_waypoints = reduce_tensor(
-                    loss_waypoints.data, args.world_size
-                )
-                reduced_loss_junction = reduce_tensor(
-                    loss_junction.data, args.world_size
-                )
-                reduced_loss_traffic_light_state = reduce_tensor(
-                    loss_traffic_light_state.data, args.world_size
-                )
-                reduced_loss_stop_sign = reduce_tensor(
-                    loss_stop_sign.data, args.world_size
-                )
+                reduced_loss_velocity = reduce_tensor(loss_velocity.data, args.world_size)
+                reduced_loss_waypoints = reduce_tensor(loss_waypoints.data, args.world_size)
+                reduced_loss_junction = reduce_tensor(loss_junction.data, args.world_size)
+                reduced_loss_traffic_light_state = reduce_tensor(loss_traffic_light_state.data, args.world_size)
+                reduced_loss_stop_sign = reduce_tensor(loss_stop_sign.data, args.world_size)
                 reduced_junction_error = reduce_tensor(junction_error, args.world_size)
-                reduced_traffic_light_state_error = reduce_tensor(
-                    traffic_light_state_error, args.world_size
-                )
-                reduced_stop_sign_error = reduce_tensor(
-                    stop_sign_error, args.world_size
-                )
+                reduced_traffic_light_state_error = reduce_tensor(traffic_light_state_error, args.world_size)
+                reduced_stop_sign_error = reduce_tensor(stop_sign_error, args.world_size)
             else:
                 reduced_loss = loss.data
 
@@ -1708,23 +1588,17 @@ def validate(
             losses_velocity.update(reduced_loss_velocity.item(), batch_size)
             losses_waypoints.update(reduced_loss_waypoints.item(), batch_size)
             losses_junction.update(reduced_loss_junction.item(), batch_size)
-            losses_traffic_light_state.update(
-                reduced_loss_traffic_light_state.item(), batch_size
-            )
+            losses_traffic_light_state.update(reduced_loss_traffic_light_state.item(), batch_size)
             losses_stop_sign.update(reduced_loss_stop_sign.item(), batch_size)
 
             l1_errorm.update(reduced_loss.item(), batch_size)
             junction_errorm.update(reduced_junction_error.item(), batch_size)
-            traffic_light_state_errorm.update(
-                reduced_traffic_light_state_error.item(), batch_size
-            )
+            traffic_light_state_errorm.update(reduced_traffic_light_state_error.item(), batch_size)
             stop_sign_errorm.update(reduced_stop_sign_error.item(), batch_size)
 
             batch_time_m.update(time.time() - end)
             end = time.time()
-            if args.local_rank == 0 and (
-                last_batch or batch_idx % args.log_interval == 0
-            ):
+            if local_rank == 0 and (last_batch or batch_idx % args.log_interval == 0):
                 log_name = "Test" + log_suffix
                 _logger.info(
                     "{0}: [{1:>4d}/{2}]  "
@@ -1795,11 +1669,7 @@ def validate(
                     writer.add_image(
                         "val/%d_pred_traffic_render" % batch_idx,
                         torch.clip(
-                            torch.tensor(
-                                render(
-                                    output[0][0].view(20, 20, 7).detach().cpu().numpy()
-                                )[:100, 40:140]
-                            ),
+                            torch.tensor(render(output[0][0].view(20, 20, 7).detach().cpu().numpy())[:100, 40:140]),
                             0,
                             255,
                         ).view(1, 100, 100),
@@ -1808,11 +1678,7 @@ def validate(
                     writer.add_image(
                         "val/%d_pred_waypoints" % batch_idx,
                         torch.clip(
-                            torch.tensor(
-                                render_waypoints(output[1][0].detach().cpu().numpy())[
-                                    :100, 40:140
-                                ]
-                            ),
+                            torch.tensor(render_waypoints(output[1][0].detach().cpu().numpy())[:100, 40:140]),
                             0,
                             255,
                         ).view(1, 100, 100),
@@ -1825,14 +1691,10 @@ def validate(
             writer.add_scalar("val/loss_velocity", losses_velocity.avg, epoch)
             writer.add_scalar("val/loss_waypoints", losses_waypoints.avg, epoch)
             writer.add_scalar("val/loss_junction", losses_junction.avg, epoch)
-            writer.add_scalar(
-                "val/loss_traffic_light_state", losses_traffic_light_state.avg, epoch
-            )
+            writer.add_scalar("val/loss_traffic_light_state", losses_traffic_light_state.avg, epoch)
             writer.add_scalar("val/loss_stop_sign", losses_stop_sign.avg, epoch)
             writer.add_scalar("val/acc_junction", junction_errorm.avg, epoch)
-            writer.add_scalar(
-                "val/acc_traffic_light_state", traffic_light_state_errorm.avg, epoch
-            )
+            writer.add_scalar("val/acc_traffic_light_state", traffic_light_state_errorm.avg, epoch)
             writer.add_scalar("val/acc_stop_sign", stop_sign_errorm.avg, epoch)
 
     metrics = OrderedDict([("loss", losses_m.avg), ("l1_error", l1_errorm.avg)])

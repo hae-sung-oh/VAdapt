@@ -14,7 +14,7 @@ from __future__ import print_function
 import math
 import traceback
 import xml.etree.ElementTree as ET
-import numpy.random as random
+from numpy import random
 
 import py_trees
 
@@ -190,7 +190,8 @@ class RouteScenario(BasicScenario):
         self.route = route
         CarlaDataProvider.set_ego_vehicle_route(convert_transform_to_location(self.route))
 
-        config.agent.set_global_plan(gps_route, self.route)
+        if config.agent is not None:
+            config.agent.set_global_plan(gps_route, self.route)
 
         # Sample the scenarios to be used for this route instance.
         self.sampled_scenarios_definitions = self._scenario_sampling(potential_scenarios_definitions)
@@ -210,7 +211,7 @@ class RouteScenario(BasicScenario):
         elevate_transform = self.route[0][0]
         elevate_transform.location.z += 0.5
 
-        ego_vehicle = CarlaDataProvider.request_new_actor('vehicle.lincoln.mkz2017',
+        ego_vehicle = CarlaDataProvider.request_new_actor('vehicle.lincoln.mkz_2017',
                                                           elevate_transform,
                                                           rolename='hero')
 
@@ -331,21 +332,21 @@ class RouteScenario(BasicScenario):
             scenario_configuration.other_actors = list_of_actor_conf_instances
             scenario_configuration.trigger_points = [egoactor_trigger_position]
             scenario_configuration.subtype = definition['scenario_type']
-            scenario_configuration.ego_vehicles = [ActorConfigurationData('vehicle.lincoln.mkz2017',
+            scenario_configuration.ego_vehicles = [ActorConfigurationData('vehicle.lincoln.mkz_2017',
                                                                           ego_vehicle.get_transform(),
                                                                           'hero')]
             route_var_name = "ScenarioRouteNumber{}".format(scenario_number)
             scenario_configuration.route_var_name = route_var_name
 
-            scenario_instance = scenario_class(world, [ego_vehicle], scenario_configuration,
-                                               criteria_enable=False, timeout=timeout)
-            # Do a tick every once in a while to avoid spawning everything at the same time
-            if scenario_number % scenarios_per_tick == 0:
-                if CarlaDataProvider.is_sync_mode():
-                    world.tick()
-                else:
-                    world.wait_for_tick()
             try:
+                scenario_instance = scenario_class(world, [ego_vehicle], scenario_configuration,
+                                                   criteria_enable=False, timeout=timeout)
+                # Do a tick every once in a while to avoid spawning everything at the same time
+                if scenario_number % scenarios_per_tick == 0:
+                    if CarlaDataProvider.is_sync_mode():
+                        world.tick()
+                    else:
+                        world.wait_for_tick()
 
                 scenario_number += 1
             except Exception as e:      # pylint: disable=broad-except

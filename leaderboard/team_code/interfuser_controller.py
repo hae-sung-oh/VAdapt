@@ -2,6 +2,7 @@ import numpy as np
 from collections import deque
 from team_code.render import render, render_self_car, find_peak_box
 
+
 class PIDController(object):
     def __init__(self, K_P=1.0, K_I=0.0, K_D=0.0, n=20):
         self._K_P = K_P
@@ -26,6 +27,7 @@ class PIDController(object):
 
         return self._K_P * error + self._K_I * integral + self._K_D * derivative
 
+
 def downsample_waypoints(waypoints, precision=0.2):
     """
     waypoints: [float lits], 10 * 2, m
@@ -45,6 +47,7 @@ def downsample_waypoints(waypoints, precision=0.2):
         last_waypoint = now_waypoint
     return downsampled_waypoints
 
+
 def collision_detections(map1, map2, threshold=0.04):
     """
     map1: rendered surround vehicles
@@ -59,6 +62,7 @@ def collision_detections(map1, map2, threshold=0.04):
     else:
         return False
 
+
 def get_max_safe_distance(meta_data, downsampled_waypoints, t, collision_buffer, threshold):
     surround_map = render(meta_data.reshape(20, 20, 7), t=t)[0][:100, 40:140]
     if np.sum(surround_map) < 1:
@@ -70,19 +74,16 @@ def get_max_safe_distance(meta_data, downsampled_waypoints, t, collision_buffer,
         aim = (downsampled_waypoints[i + 1] + downsampled_waypoints[i + 2]) / 2.0
         loc = downsampled_waypoints[i]
         ori = aim - loc
-        self_car_map = render_self_car(loc=loc, ori=ori, box=hero_bounding_box)[
-            :100, 40:140
-        ]
+        self_car_map = render_self_car(loc=loc, ori=ori, box=hero_bounding_box)[:100, 40:140]
         if collision_detections(surround_map, self_car_map, threshold) is False:
             break
         safe_distance = max(safe_distance, np.linalg.norm(loc))
     return safe_distance
 
+
 class InterfuserController(object):
     def __init__(self, config):
-        self.turn_controller = PIDController(
-            K_P=config.turn_KP, K_I=config.turn_KI, K_D=config.turn_KD, n=config.turn_n
-        )
+        self.turn_controller = PIDController(K_P=config.turn_KP, K_I=config.turn_KI, K_D=config.turn_KD, n=config.turn_n)
         self.speed_controller = PIDController(
             K_P=config.speed_KP,
             K_I=config.speed_KI,
@@ -99,14 +100,10 @@ class InterfuserController(object):
         self.block_red_light = 0
 
         self.in_stop_sign_effect = False
-        self.block_stop_sign_distance = (
-            0  # If this is 3 here, it means in 3m, stop sign will not take effect again
-        )
+        self.block_stop_sign_distance = 0  # If this is 3 here, it means in 3m, stop sign will not take effect again
         self.stop_sign_trigger_times = 0
 
-    def run_step(
-        self, speed, waypoints, junction, traffic_light_state, stop_sign, meta_data
-    ):
+    def run_step(self, speed, waypoints, junction, traffic_light_state, stop_sign, meta_data):
         """
         speed: int, m/s
         waypoints: [float lits], 10 * 2, m
@@ -142,9 +139,7 @@ class InterfuserController(object):
             self.block_stop_sign_distance = 2.0
             self.stop_sign_trigger_times = 3
 
-        self.block_stop_sign_distance = max(
-            0, self.block_stop_sign_distance - 0.05 * speed
-        )
+        self.block_stop_sign_distance = max(0, self.block_stop_sign_distance - 0.05 * speed)
         if self.block_stop_sign_distance < 0.1:
             if self.stop_sign_trigger_times > 0:
                 self.block_stop_sign_distance = 2.0
@@ -225,7 +220,7 @@ class InterfuserController(object):
                     2 * d_1 - 0.5 * speed - max(0, speed - 2.5),
                 ),
             )
-            if junction > 0.0 and traffic_light_state > 0.3:
+            if junction > 0.0 and traffic_light_state > 0.7:
                 brake = True
                 desired_speed = 0.0
         desired_speed = desired_speed if brake is False else 0.0
@@ -237,14 +232,14 @@ class InterfuserController(object):
         if speed > desired_speed * self.config.brake_ratio:
             brake = True
 
-        '''
+        """
         meta_info_1 = "d0:%.1f, d05:%.1f, d1:%.1f, desired_speed:%.2f" % (
             d_0,
             d_05,
             d_1,
             desired_speed,
         )
-        '''
+        """
         meta_info_1 = "speed: %.2f, target_speed: %.2f" % (
             speed,
             desired_speed,
@@ -259,7 +254,7 @@ class InterfuserController(object):
             self.block_stop_sign_distance,
         )
 
-        if self.stop_steps > 1200:
+        if self.stop_steps > 600:
             self.forced_forward_steps = 12
             self.stop_steps = 0
         if self.forced_forward_steps > 0:

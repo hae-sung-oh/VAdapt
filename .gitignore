@@ -1,0 +1,13 @@
+birdview_v2_cache
+data
+data_collection/bash*
+data_collection/batch*
+dataset/weather*
+dataset/dataset_index.txt
+*.back
+*.tar
+*pth*
+interfuser/output/*
+*__pycache__*
+*.pyc
+.vscode

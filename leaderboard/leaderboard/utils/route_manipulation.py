@@ -12,7 +12,28 @@ It also contains functions to convert the CARLA world location do GPS coordinate
 
 import math
 import xml.etree.ElementTree as ET
+import glob
+import sys
+import os
 
+CARLA_ROOT = os.getenv("CARLA_ROOT")
+try:
+    sys.path.append(
+        glob.glob(
+            CARLA_ROOT
+            + "/PythonAPI/carla/dist/carla-*%d.%d-%s.egg"
+            % (
+                sys.version_info.major,
+                sys.version_info.minor,
+                "win-amd64" if os.name == "nt" else "linux-x86_64",
+            )
+        )[0]
+    )
+    sys.path.append(CARLA_ROOT + "/PythonAPI/carla")
+except IndexError as e:
+    print(e)
+    pass
+import carla
 from agents.navigation.global_route_planner import GlobalRoutePlanner
 from agents.navigation.global_route_planner_dao import GlobalRoutePlannerDAO
 from agents.navigation.local_planner import RoadOption
@@ -27,7 +48,7 @@ def _location_to_gps(lat_ref, lon_ref, location):
     :return: dictionary with lat, lon and height
     """
 
-    EARTH_RADIUS_EQUA = 6378137.0   # pylint: disable=invalid-name
+    EARTH_RADIUS_EQUA = 6378137.0  # pylint: disable=invalid-name
     scale = math.cos(lat_ref * math.pi / 180.0)
     mx = scale * lon_ref * math.pi * EARTH_RADIUS_EQUA / 180.0
     my = scale * EARTH_RADIUS_EQUA * math.log(math.tan((90.0 + lat_ref) * math.pi / 360.0))
@@ -38,7 +59,7 @@ def _location_to_gps(lat_ref, lon_ref, location):
     lat = 360.0 * math.atan(math.exp(my / (EARTH_RADIUS_EQUA * scale))) / math.pi - 90.0
     z = location.z
 
-    return {'lat': lat, 'lon': lon, 'z': z}
+    return {"lat": lat, "lon": lon, "z": z}
 
 
 def location_route_to_gps(route, lat_ref, lon_ref):
@@ -74,12 +95,12 @@ def _get_latlon_ref(world):
         for header in opendrive.iter("header"):
             for georef in header.iter("geoReference"):
                 if georef.text:
-                    str_list = georef.text.split(' ')
+                    str_list = georef.text.split(" ")
                     for item in str_list:
-                        if '+lat_0' in item:
-                            lat_ref = float(item.split('=')[1])
-                        if '+lon_0' in item:
-                            lon_ref = float(item.split('=')[1])
+                        if "+lat_0" in item:
+                            lat_ref = float(item.split("=")[1])
+                        if "+lon_0" in item:
+                            lon_ref = float(item.split("=")[1])
     return lat_ref, lon_ref
 
 
@@ -121,7 +142,7 @@ def downsample_route(route, sample_factor):
         # Compute the distance traveled
         else:
             curr_location = point[0].location
-            prev_location = route[i-1][0].location
+            prev_location = route[i - 1][0].location
             dist += curr_location.distance(prev_location)
 
         prev_option = curr_option
@@ -133,7 +154,7 @@ def interpolate_trajectory(world, waypoints_trajectory, hop_resolution=1.0):
     """
     Given some raw keypoints interpolate a full dense trajectory to be used by the user.
     returns the full interpolated route both in GPS coordinates and also in its original form.
-    
+
     Args:
         - world: an reference to the CARLA world so we can use the planner
         - waypoints_trajectory: the current coarse trajectory
@@ -141,11 +162,12 @@ def interpolate_trajectory(world, waypoints_trajectory, hop_resolution=1.0):
     """
 
     dao = GlobalRoutePlannerDAO(world.get_map(), hop_resolution)
+    # grp = GlobalRoutePlanner(world.get_map(), hop_resolution)
     grp = GlobalRoutePlanner(dao)
     grp.setup()
     # Obtain route plan
     route = []
-    for i in range(len(waypoints_trajectory) - 1):   # Goes until the one before the last.
+    for i in range(len(waypoints_trajectory) - 1):  # Goes until the one before the last.
 
         waypoint = waypoints_trajectory[i]
         waypoint_next = waypoints_trajectory[i + 1]
