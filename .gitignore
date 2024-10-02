@@ -11,3 +11,8 @@ interfuser/output/*
 *__pycache__*
 *.pyc
 .vscode
+data_collection/base_script.sh
+data_collection/generate_bashs.py
+leaderboard/leaderboard/leaderboard_evaluator.py
+leaderboard/team_code/interfuser_config.py
+result/
